@@ -245,6 +245,14 @@ button {
   background: var(--hang-copper); color: #2a1608; font-weight: 700;
   border: none; cursor: pointer;
 }
+.btn-ghost {
+  background: transparent; color: var(--hang-copper);
+  border: 1px solid var(--hang-copper);
+}
+td .btn-ghost, td button + button { margin-left: .4rem; }
+.extend-editor { display: inline-flex; gap: .4rem; align-items: center; }
+.extend-editor input { padding: .3rem .5rem; }
+.extend-editor button + button { margin-left: 0; }
 .table { width: 100%; border-collapse: collapse; }
 .table th, .table td {
   border-bottom: 1px solid var(--line); padding: .5rem .35rem;

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.models import HangRail, RailPlacement, Store, WorkOrder
 from app.schemas.schemas import (
+    ExtendRequest,
     HangRequest,
     OccupancyOut,
     OccupancySeg,
@@ -18,6 +19,30 @@ from app.schemas.schemas import (
 from app.services.rail_engine import Segment, first_fit
 
 api_router = APIRouter()
+
+
+def _has_active_placement(db: Session, order_id: int) -> bool:
+    return (
+        db.scalar(
+            select(RailPlacement.id)
+            .where(RailPlacement.order_id == order_id, RailPlacement.active == 1)
+            .limit(1)
+        )
+        is not None
+    )
+
+
+def _can_extend(db: Session, order: WorkOrder) -> bool:
+    """hung 工单可延期；overdue 但仍在杆上（有占位）的工单同口径可延期。"""
+    return order.status == "hung" or (
+        order.status == "overdue" and _has_active_placement(db, order.id)
+    )
+
+
+def _attach_can_extend(db: Session, orders):
+    for o in orders:
+        o.can_extend = _can_extend(db, o)
+    return orders
 
 
 @api_router.get("/health")
@@ -37,7 +62,8 @@ def rails(db: Session = Depends(get_db)):
 
 @api_router.get("/orders", response_model=list[OrderOut])
 def orders(db: Session = Depends(get_db)):
-    return db.scalars(select(WorkOrder).order_by(WorkOrder.id.desc())).all()
+    rows = db.scalars(select(WorkOrder).order_by(WorkOrder.id.desc())).all()
+    return _attach_can_extend(db, rows)
 
 
 @api_router.get("/occupancy/{rail_id}", response_model=OccupancyOut)
@@ -100,6 +126,7 @@ def hang(body: HangRequest, db: Session = Depends(get_db)):
         order.hung_at = datetime.utcnow()
         db.commit()
         db.refresh(order)
+        order.can_extend = _can_extend(db, order)
         return order
 
     raise HTTPException(409, "挂杆空间不足")
@@ -120,6 +147,30 @@ def pickup(body: PickupRequest, db: Session = Depends(get_db)):
     order.status = "picked"
     db.commit()
     db.refresh(order)
+    order.can_extend = _can_extend(db, order)
+    return order
+
+
+@api_router.post("/extend", response_model=OrderOut)
+def extend(body: ExtendRequest, db: Session = Depends(get_db)):
+    order = db.get(WorkOrder, body.order_id)
+    if not order:
+        raise HTTPException(404, "工单不存在")
+    if not _can_extend(db, order):
+        raise HTTPException(400, "当前状态不可延期（仅挂杆中、含逾期未取的工单可延期）")
+    new_due = body.due_at
+    if new_due.tzinfo is not None:
+        new_due = new_due.astimezone(timezone.utc).replace(tzinfo=None)
+    if new_due <= order.due_at:
+        raise HTTPException(400, "新到期必须晚于原到期时间")
+    if order.hung_at and new_due < order.hung_at:
+        raise HTTPException(400, "新到期不得早于上杆时间")
+    order.due_at = new_due
+    if order.status == "overdue" and new_due > datetime.utcnow():
+        order.status = "hung"
+    db.commit()
+    db.refresh(order)
+    order.can_extend = _can_extend(db, order)
     return order
 
 
@@ -138,9 +189,12 @@ def overdue_scan(db: Session = Depends(get_db)):
             o.status = "overdue"
             marked.append(o)
     db.commit()
-    return marked
+    return _attach_can_extend(db, marked)
 
 
 @api_router.get("/overdue", response_model=list[OrderOut])
 def overdue_list(db: Session = Depends(get_db)):
-    return db.scalars(select(WorkOrder).where(WorkOrder.status == "overdue").order_by(WorkOrder.due_at)).all()
+    rows = db.scalars(
+        select(WorkOrder).where(WorkOrder.status == "overdue").order_by(WorkOrder.due_at)
+    ).all()
+    return _attach_can_extend(db, rows)

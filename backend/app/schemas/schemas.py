@@ -25,6 +25,7 @@ class OrderOut(BaseModel):
     status: str
     due_at: datetime
     hung_at: datetime | None
+    can_extend: bool = False
     model_config = {"from_attributes": True}
 
 
@@ -35,6 +36,11 @@ class HangRequest(BaseModel):
 
 class PickupRequest(BaseModel):
     ticket_code: str
+
+
+class ExtendRequest(BaseModel):
+    order_id: int
+    due_at: datetime
 
 
 class OccupancySeg(BaseModel):
