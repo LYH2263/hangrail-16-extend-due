@@ -37,6 +37,10 @@ class PickupRequest(BaseModel):
     ticket_code: str
 
 
+class ExtendRequest(BaseModel):
+    due_at: datetime
+
+
 class OccupancySeg(BaseModel):
     order_id: int
     ticket_code: str

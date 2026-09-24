@@ -26,25 +26,30 @@ export default function Layout() {
   const [overdue, setOverdue] = useState<Order[]>([]);
 
   useEffect(() => {
-    api<{ id: number; label: string; length_cm: number }[]>("/rails")
-      .then(async (rs) => {
-        const all = await Promise.all(rs.map((r) => api<Occ>(`/occupancy/${r.id}`)));
-        setMaps(all);
-      })
-      .catch(() => setMaps([]));
+    const refresh = () => {
+      api<{ id: number; label: string; length_cm: number }[]>("/rails")
+        .then(async (rs) => {
+          const all = await Promise.all(rs.map((r) => api<Occ>(`/occupancy/${r.id}`)));
+          setMaps(all);
+        })
+        .catch(() => setMaps([]));
 
-    api<Order[]>("/orders")
-      .then((rows) => {
-        const ready = rows
-          .filter((o) => o.status === "ready" || o.status === "hanging" || o.status === "overdue")
-          .slice(0, 6);
-        setPickupHint(ready);
-      })
-      .catch(() => setPickupHint([]));
+      api<Order[]>("/orders")
+        .then((rows) => {
+          const ready = rows
+            .filter((o) => o.status === "ready" || o.status === "hanging" || o.status === "overdue")
+            .slice(0, 6);
+          setPickupHint(ready);
+        })
+        .catch(() => setPickupHint([]));
 
-    api<Order[]>("/overdue")
-      .then((rows) => setOverdue(rows.slice(0, 8)))
-      .catch(() => setOverdue([]));
+      api<Order[]>("/overdue")
+        .then((rows) => setOverdue(rows.slice(0, 8)))
+        .catch(() => setOverdue([]));
+    };
+    refresh();
+    window.addEventListener("orders-changed", refresh);
+    return () => window.removeEventListener("orders-changed", refresh);
   }, [loc.pathname]);
 
   const hangTags = maps.flatMap((m) =>

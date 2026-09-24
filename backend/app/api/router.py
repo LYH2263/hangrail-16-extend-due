@@ -10,6 +10,7 @@ from app.schemas.schemas import (
     HangRequest,
     OccupancyOut,
     OccupancySeg,
+    ExtendRequest,
     OrderOut,
     PickupRequest,
     RailOut,
@@ -144,3 +145,28 @@ def overdue_scan(db: Session = Depends(get_db)):
 @api_router.get("/overdue", response_model=list[OrderOut])
 def overdue_list(db: Session = Depends(get_db)):
     return db.scalars(select(WorkOrder).where(WorkOrder.status == "overdue").order_by(WorkOrder.due_at)).all()
+
+
+@api_router.post("/orders/{order_id}/extend", response_model=OrderOut)
+def extend_due(order_id: int, body: ExtendRequest, db: Session = Depends(get_db)):
+    order = db.get(WorkOrder, order_id)
+    if not order:
+        raise HTTPException(404, "工单不存在")
+    placement = db.scalar(
+        select(RailPlacement).where(RailPlacement.order_id == order.id, RailPlacement.active == 1)
+    )
+    if not placement:
+        raise HTTPException(400, "仅挂杆上占位的 hung 工单可延期")
+    if order.status not in ("hung", "overdue"):
+        raise HTTPException(400, "非 hung 工单不可延期")
+    new_due = body.due_at
+    if new_due <= order.due_at:
+        raise HTTPException(400, "新到期必须晚于原到期")
+    if order.hung_at is not None and new_due < order.hung_at:
+        raise HTTPException(400, "新到期不得早于挂杆时间")
+    order.due_at = new_due
+    if order.status == "overdue":
+        order.status = "hung"
+    db.commit()
+    db.refresh(order)
+    return order

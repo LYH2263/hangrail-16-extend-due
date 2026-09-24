@@ -252,6 +252,9 @@ button {
 }
 .mono { font-family: "IBM Plex Mono", monospace; }
 .err { color: #ff9b7a; } .ok { color: #d4c08a; }
+.ext-inline { display: inline-flex; gap: .35rem; align-items: center; flex-wrap: nowrap; }
+.ext-inline input { padding: .35rem .5rem; }
+.ext-inline button { padding: .35rem .5rem; white-space: nowrap; }
 
 .ruler-wrap {
   background: transparent;
